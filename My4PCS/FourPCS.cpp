@@ -33,16 +33,19 @@ void FourPCS::SelectCoplanarBase() {
 		if (Area > MaxArea) {
 			MaxArea = Area;
 			Base = *cloud_sample;
+			cout << "max_area: " << Area << endl;
+			cout << "3base: (" << cloud_sample->points[0].x << "," << cloud_sample->points[0].y << "," <<cloud_sample->points[0].z << ")"<<endl;
+			cout << "(" << cloud_sample->points[1].x << "," << cloud_sample->points[1].y << "," << cloud_sample->points[1].z << ")" << endl;
+			cout << " (" << cloud_sample->points[2].x << "," << cloud_sample->points[2].y << "," << cloud_sample->points[2].z << ")" << endl;
 		}
 	}
-	bool find = false;
 	double norm_norm = 0;
 	double max_dist = 0;
-	double threh = 0.01;
+	double threh = 0.1;
 	Eigen::Vector3d best_point(3);
 	for (int j = 0; j < cloud->size();j++) {//遍历点云，选择最优第四点
-		if (j % 100 == 0)
-			cout << "max_dist: " << max_dist << "norm: " << norm_norm << endl;
+		//if (j % 100 == 0)
+		//	cout << "max_dist: " << max_dist << "norm: " << norm_norm << endl;
 		Eigen::Vector3d p1(3), p2(3), p3(3), p4(3);
 		p1 << Base.points[0].x, Base.points[0].y, Base.points[0].z;
 		p2 << Base.points[1].x, Base.points[1].y, Base.points[1].z;
@@ -52,7 +55,7 @@ void FourPCS::SelectCoplanarBase() {
 		{
 			continue;
 		}
-		if (!CheckLegal(p1, p2, p4) || !CheckLegal(p1, p3, p4) || !CheckLegal(p2, p3, p4))
+		if (!CheckLegal(p1-p2, p1-p3, p1-p4) || !CheckLegal(p2 - p1, p2 - p3, p2 - p4) || !CheckLegal(p3 - p1, p3 - p2, p3 - p4))
 		{
 			continue;
 		}
@@ -62,11 +65,11 @@ void FourPCS::SelectCoplanarBase() {
 			norm_norm = norm.norm();
 			max_dist = temp;
 			best_point = p4;
+			cout << "max_dist: " << max_dist << "norm: " << norm_norm << endl;
 		}
 	}
 	if (max_dist == 0)
 		cerr << "未找到符合条件的基，请重试或调整参数" << endl;
-		return;
 	cout << "final norm " << norm_norm << endl;
 	cout << "final dist " << max_dist << endl;
 	Base.points[3].x = best_point[0];
@@ -83,7 +86,7 @@ bool FourPCS::CheckLegal(Eigen::Vector3d p1, Eigen::Vector3d p2, Eigen::Vector3d
 	A.col(1) = p2;
 	Eigen::Matrix2d B = A.block<2,2>(0,0);// A.block<2, 2>(0, 0);
 	Eigen::Vector2d lamda = B.colPivHouseholderQr().solve(b);
-	if (lamda[0] * lamda[1] > 0)
+	if (lamda[0] * lamda[1] > 0 && lamda[0] + lamda[1] < 1)
 		return false;
 	else
 		return true;
@@ -121,16 +124,18 @@ double FourPCS::Line2LineDist(Eigen::Vector3d u0, Eigen::Vector3d u1, Eigen::Vec
 	d = u.dot(w0);
 	e = v.dot(w0);
 	double sc = (b * e - c * d) / (a * c - pow(b, 2));
-	double tc = (a*e - c*d ) / (a * c - pow(b, 2));
+	double tc = (a*e - b*d ) / (a * c - pow(b, 2));
 	double dist = (u0 - v0 + sc * u - tc * v).norm();
 	return dist;
 
 }
 
 
-void FourPCS::FindCongruent(pcl::PointCloud<pcl::PointXYZ> B, pcl::PointCloud<pcl::PointXYZ> Q, double delta)
+void FourPCS::FindCongruent(double delta)
 {
 	double min_dist = 0;
+	pcl::PointCloud<pcl::PointXYZ> B = this->Base;
+	pcl::PointCloud<pcl::PointXYZ> Q = this->Q_cloud;
 	Eigen::Vector3d p1, p2, p3, p4, b1, b2, b3, b4;
 	p1 << B.points[0].x, B.points[0].y, B.points[0].z;
 	p2 << B.points[1].x, B.points[1].y, B.points[1].z;
@@ -158,6 +163,7 @@ void FourPCS::FindCongruent(pcl::PointCloud<pcl::PointXYZ> B, pcl::PointCloud<pc
 		b3 = p2;
 		b4 = p3;
 	}
+	
 	
 
 }

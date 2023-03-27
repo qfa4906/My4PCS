@@ -14,6 +14,7 @@ int main()
 	}
 	FourPCS* pcs = new FourPCS(*P_cloud_ptr,*Q_cloud_ptr);
 	pcs->SelectCoplanarBase();
+	pcs->FindCongruent(0.1);
 	savePointCloud(pcs->Base, "Base.ply");
 
 
