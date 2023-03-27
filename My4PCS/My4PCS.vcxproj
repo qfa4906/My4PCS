@@ -128,10 +128,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="FourPCS.cpp" />
+    <ClCompile Include="KDTree.cpp" />
     <ClCompile Include="My4PCS.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FourPCS.h" />
+    <ClInclude Include="KDTree.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
