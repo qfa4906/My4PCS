@@ -12,6 +12,30 @@ FourPCS::FourPCS(pcl::PointCloud<pcl::PointXYZ> cloud1, pcl::PointCloud<pcl::Poi
 	Q_cloud = cloud2;
 }
 
+pcl::PointXYZ operator*(double k, pcl::PointXYZ p) {
+	pcl::PointXYZ res = p;
+	res.x = p.x * k;
+	res.y = p.y * k;
+	res.z = p.z * k;
+	return res;
+
+}
+
+pcl::PointXYZ operator+(pcl::PointXYZ p1, pcl::PointXYZ p2) {
+	pcl::PointXYZ res = p1;
+	res.x = p1.x + p2.x;
+	res.y = p1.y + p2.y;
+	res.z = p1.z + p2.z;
+	return res;
+}
+
+pcl::PointXYZ operator-(pcl::PointXYZ& p1, pcl::PointXYZ& p2) {
+	pcl::PointXYZ res = p1;
+	res.x = p1.x - p2.x;
+	res.y = p1.y - p2.y;
+	res.z = p1.z - p2.z;
+	return res;
+}
 void FourPCS::SelectCoplanarBase() {
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 	*cloud = P_cloud;
@@ -185,14 +209,14 @@ void FourPCS::FindCongruent(double delta)
 		b4 = p3;
 	}
 	//记录线段交比
-	double* r1 = nullptr;
-	double* r2 = nullptr;
+	double* r1 = new double;
+	double* r2 = new double;
 	Line2LineLeastSquareIntersection(b1, b2, b3, b4, r1, r2);
 	//线段长度特征
 	double d1 = (b1 - b2).norm();
 	double d2 = (b3 - b4).norm();
 
-	pcl::PointCloud<pcl::PointXYZ> R1, R2, PAI1, PAI2;
+	pcl::PointCloud<pcl::PointXYZ> R1, R2, PAI1, PAI2;//R1,R2点对集，PAI1, PAI2交点集。R中第i（i为偶）和第i+1个点组成一个点对，对应PAI中的第i（i为偶）和第i+1个点为两个交点。
 	//搜索近似长度点对
 	cout << "Matching Pairs from source" << endl;
 	R1 = FindMatchPairs(P_cloud, d1, 0.02);
@@ -202,21 +226,38 @@ void FourPCS::FindCongruent(double delta)
 	cout << "R2 Size: " << R2.size() << endl;
 	//按照交比猜测可能的交点
 	for (int i = 0; i < R1.size(); i = i + 2) {
-		PAI1.push_back(R1.points[i] + *r1 * NormalizePointXYZ(R1.points[i]));
-		PAI1.push_back(R1.points[i+1] + *r1 * NormalizePointXYZ(R1.points[i+1]));
+		PAI1.push_back(R1.points[i] + *r1 * (R1.points[i + 1] + double(-1) * R1.points[i]));
+		PAI1.push_back(R1.points[i+1] + *r1 *(R1.points[i] + (-1) * R1.points[i + 1]));
 	}
 	for (int i = 0; i < R2.size(); i = i + 2) {
-		PAI2.push_back(R2.points[i] + *r1 * NormalizePointXYZ(R2.points[i]));
-		PAI2.push_back(R2.points[i + 1] + *r1 * NormalizePointXYZ(R2.points[i + 1]));
+		PAI2.push_back(R2.points[i] + *r1 * (R2.points[i + 1] + (-1) * R2.points[i]));
+		PAI2.push_back(R2.points[i + 1] + *r1 * (R2.points[i] + (-1) * R2.points[i + 1]));
 	}
 	pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;//建立KDTree，对PAI1中所有点，搜索PAI2的最近邻
+	pcl::PointCloud<pcl::PointXYZ>::Ptr PAI1_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+	*PAI1_ptr = PAI1;
+	kdtree.setInputCloud(PAI1_ptr);
+	pcl::PointXYZ pSearch, pMin, pMax;       //搜索点，三个轴的最大值和最小值
+	pcl::getMinMax3D(*PAI1_ptr, pMin, pMax);    //需要include<pcl/common/common.h>
+	pcl::PointXYZ tmp;       //用于存储临时点
+	float r = min_dist;
+	vector<int> ptIdxByRadius;   //存储近邻索引
+	vector<float> ptRadius;      //存储近邻对应距离的平方
+	for (int k = 0; k < PAI2.size(); k++) {
+		kdtree.radiusSearch(PAI2.points[k], r, ptIdxByRadius, ptRadius);
+	}
+	cout << "search res:" << endl;
+	for (size_t i = 0; i < ptIdxByRadius.size(); ++i) {
+		tmp = PAI1_ptr->points[ptIdxByRadius[i]];
+		cout << tmp.x << " " << tmp.y << " " << tmp.z
+			<< " (squared distance: " << ptRadius[i] << ")" << endl;
+	}
 
 }
 pcl::PointCloud<pcl::PointXYZ> FourPCS::FindMatchPairs(pcl::PointCloud<pcl::PointXYZ> &cloud, double d, double delta) {
 	pcl::PointCloud<pcl::PointXYZ> candidatep_points;
 	for (int i = 0; i < cloud.size(); i++) {
-		if (cloud.size() % (cloud.size() / 100) == 0)
-			cout << "." << endl;
+		cout << i << endl;
 		Eigen::Vector3d pi; 
 		pi << cloud.points[i].x, cloud.points[i].y, cloud.points[i].z;
 		for (int j = i; j < cloud.size(); j++) {
@@ -243,27 +284,3 @@ pcl::PointXYZ FourPCS::NormalizePointXYZ(pcl::PointXYZ p) {
 	return pclp;
 }
 
-pcl::PointXYZ operator*(double k, pcl::PointXYZ p) {
-	pcl::PointXYZ res = p;
-	res.x = p.x * k;
-	res.y = p.y * k;
-	res.z = p.z * k;
-	return res;
-
-}
-
-pcl::PointXYZ operator+(pcl::PointXYZ p1, pcl::PointXYZ p2) {
-	pcl::PointXYZ res = p1;
-	res.x = p1.x + p2.x;
-	res.y = p1.y + p2.y;
-	res.z = p1.z + p2.z;
-	return res;
-}
-
-pcl::PointXYZ operator-(pcl::PointXYZ p1, pcl::PointXYZ p2) {
-	pcl::PointXYZ res = p1;
-	res.x = p1.x - p2.x;
-	res.y = p1.y - p2.y;
-	res.z = p1.z - p2.z;
-	return res;
-}
