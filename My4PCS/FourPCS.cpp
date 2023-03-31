@@ -1,19 +1,52 @@
 #include "FourPCS.h"
 #include<Eigen/Dense>
+#include<iostream>
+#include <thread>
+#include <vector>
+#include <atomic>
+#include <tbb/task_arena.h>
 #include <pcl/io/ply_io.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/random_sample.h>
 #include<math.h>
 #include<pcl/common/common.h>
 #include <pcl/kdtree/kdtree_flann.h> 
+int THREAD_NUM = 1;
 using namespace std;
 FourPCS::FourPCS(pcl::PointCloud<pcl::PointXYZ> cloud1, pcl::PointCloud<pcl::PointXYZ> cloud2) {
 	P_cloud = cloud1;
 	Q_cloud = cloud2;
+	cout << "P size:" << P_cloud.size();
+	cout << "Q size:" << Q_cloud.size();
+
+}
+
+inline double DistPointXYZ(pcl::PointXYZ p1, pcl::PointXYZ p2) {
+	return (pow((p1.x - p2.x), 2) + pow((p1.y - p2.y), 2) + pow((p1.z - p2.z), 2));
+}
+
+void FindMatchPairsThread(pcl::PointCloud<pcl::PointXYZ> cloud, pcl::PointCloud<pcl::PointXYZ>& R1, pcl::PointCloud<pcl::PointXYZ>& R2, double delta1, double delta2, double d, int a, int b) {
+	double d2 = pow(d, 2);
+	cout << "this is thread: " << a <<endl;
+	for (int i = a; i < cloud.size(); i += THREAD_NUM) {
+		if (i % 100 == 0)
+			cout << i << endl;
+		for (int j = i; j < cloud.size(); j++) {
+			double dist =pow(DistPointXYZ(cloud.points[i], cloud.points[j]),0.5);
+			if ((dist - delta1) < d2 && (dist - delta1) > -d2) {
+				R1.push_back(cloud.points[i]);
+				R1.push_back(cloud.points[j]);
+			}
+			if ((dist - delta2) < d2 && (dist - delta2) > -d2) {
+				R2.push_back(cloud.points[i]);
+				R2.push_back(cloud.points[j]);
+			}
+		}
+	}
 }
 
 pcl::PointXYZ operator*(double k, pcl::PointXYZ p) {
-	pcl::PointXYZ res = p;
+	pcl::PointXYZ res;
 	res.x = p.x * k;
 	res.y = p.y * k;
 	res.z = p.z * k;
@@ -22,7 +55,7 @@ pcl::PointXYZ operator*(double k, pcl::PointXYZ p) {
 }
 
 pcl::PointXYZ operator+(pcl::PointXYZ p1, pcl::PointXYZ p2) {
-	pcl::PointXYZ res = p1;
+	pcl::PointXYZ res;
 	res.x = p1.x + p2.x;
 	res.y = p1.y + p2.y;
 	res.z = p1.z + p2.z;
@@ -30,7 +63,7 @@ pcl::PointXYZ operator+(pcl::PointXYZ p1, pcl::PointXYZ p2) {
 }
 
 pcl::PointXYZ operator-(pcl::PointXYZ& p1, pcl::PointXYZ& p2) {
-	pcl::PointXYZ res = p1;
+	pcl::PointXYZ res;
 	res.x = p1.x - p2.x;
 	res.y = p1.y - p2.y;
 	res.z = p1.z - p2.z;
@@ -72,8 +105,8 @@ void FourPCS::SelectCoplanarBase() {
 	Eigen::Vector3d best_point(3);
 	cout << "Selecting Fourth Point" << endl;
 	for (int j = 0; j < cloud->size();j++) {//遍历点云，选择最优第四点
-		//if (j % 100 == 0)
-		//	cout << "max_dist: " << max_dist << "norm: " << norm_norm << endl;
+		if (j % 1000 == 0)
+			cout << "max_dist: " << max_dist << "norm: " << norm_norm << endl;
 		Eigen::Vector3d p1(3), p2(3), p3(3), p4(3);
 		p1 << Base.points[0].x, Base.points[0].y, Base.points[0].z;
 		p2 << Base.points[1].x, Base.points[1].y, Base.points[1].z;
@@ -155,8 +188,10 @@ double FourPCS::Line2LineDist(Eigen::Vector3d u0, Eigen::Vector3d u1, Eigen::Vec
 	e = v.dot(w0);
 	double sc = (b * e - c * d) / (a * c - pow(b, 2));
 	double tc = (a*e - b*d ) / (a * c - pow(b, 2));
-	double dist = (u0 - v0 + sc * u - tc * v).norm();
-	return dist;
+	if( sc > 0 && tc > 0 && sc < 1 && tc < 1)
+		return (u0 - v0 + sc * u - tc * v).norm();
+	else
+		return 0;
 }
 
 void FourPCS::Line2LineLeastSquareIntersection(Eigen::Vector3d u0, Eigen::Vector3d u1, Eigen::Vector3d v0, Eigen::Vector3d v1, double *r1, double *r2) {
@@ -190,13 +225,13 @@ void FourPCS::FindCongruent(double delta)
 	double dist2 = Line2LineDist(p1, p3, p2, p4);
 	double dist3 = Line2LineDist(p1, p4, p2, p3);
 	b1 = p1;
-	if (dist2 >= dist1 && dist3 >= dist1) { 
+	if (dist1 != 0) { 
 		min_dist = dist1;
 		b2 = p2;
 		b3 = p3;
 		b4 = p4;
 	}
-	else if (dist1 >= dist2 && dist3 >= dist2) {
+	else if (dist2 != 0) {
 		min_dist = dist2;
 		b2 = p3;
 		b3 = p2;
@@ -219,19 +254,18 @@ void FourPCS::FindCongruent(double delta)
 	pcl::PointCloud<pcl::PointXYZ> R1, R2, PAI1, PAI2;//R1,R2点对集，PAI1, PAI2交点集。R中第i（i为偶）和第i+1个点组成一个点对，对应PAI中的第i（i为偶）和第i+1个点为两个交点。
 	//搜索近似长度点对
 	cout << "Matching Pairs from source" << endl;
-	R1 = FindMatchPairs(P_cloud, d1, 0.02);
+	//FindMatchPairs(Q_cloud,R1,R2,d1,d2, 0.02);
+	FindMatchPairsThread(Q_cloud, R1, R2, d1, d2, 0.02, 0, 0);
 	cout << "R1 Size: " << R1.size()<< endl;
-	cout << "Matching Pairs from target" << endl;
-	R2 = FindMatchPairs(Q_cloud, d2, 0.02);
 	cout << "R2 Size: " << R2.size() << endl;
 	//按照交比猜测可能的交点
 	for (int i = 0; i < R1.size(); i = i + 2) {
-		PAI1.push_back(R1.points[i] + *r1 * (R1.points[i + 1] + double(-1) * R1.points[i]));
+		PAI1.push_back( R1.points[i] + *r1 * (R1.points[i + 1] + double(-1) * R1.points[i]) );
 		PAI1.push_back(R1.points[i+1] + *r1 *(R1.points[i] + (-1) * R1.points[i + 1]));
 	}
 	for (int i = 0; i < R2.size(); i = i + 2) {
-		PAI2.push_back(R2.points[i] + *r1 * (R2.points[i + 1] + (-1) * R2.points[i]));
-		PAI2.push_back(R2.points[i + 1] + *r1 * (R2.points[i] + (-1) * R2.points[i + 1]));
+		PAI2.push_back(R2.points[i] + *r2 * (R2.points[i + 1] + (-1) * R2.points[i]));
+		PAI2.push_back(R2.points[i + 1] + *r2 * (R2.points[i] + (-1) * R2.points[i + 1]));
 	}
 	pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;//建立KDTree，对PAI1中所有点，搜索PAI2的最近邻
 	pcl::PointCloud<pcl::PointXYZ>::Ptr PAI1_ptr(new pcl::PointCloud<pcl::PointXYZ>);
@@ -240,37 +274,46 @@ void FourPCS::FindCongruent(double delta)
 	pcl::PointXYZ pSearch, pMin, pMax;       //搜索点，三个轴的最大值和最小值
 	pcl::getMinMax3D(*PAI1_ptr, pMin, pMax);    //需要include<pcl/common/common.h>
 	pcl::PointXYZ tmp;       //用于存储临时点
-	float r = min_dist;
-	vector<int> ptIdxByRadius;   //存储近邻索引
+	float r = min_dist * 2;
+	vector<int> PAI1_index;   //存储近邻索引
+	vector<int> search_index;
 	vector<float> ptRadius;      //存储近邻对应距离的平方
+	vector<int> PAI2_index;
 	for (int k = 0; k < PAI2.size(); k++) {
-		kdtree.radiusSearch(PAI2.points[k], r, ptIdxByRadius, ptRadius);
-	}
-	cout << "search res:" << endl;
-	for (size_t i = 0; i < ptIdxByRadius.size(); ++i) {
-		tmp = PAI1_ptr->points[ptIdxByRadius[i]];
-		cout << tmp.x << " " << tmp.y << " " << tmp.z
-			<< " (squared distance: " << ptRadius[i] << ")" << endl;
-	}
-
-}
-pcl::PointCloud<pcl::PointXYZ> FourPCS::FindMatchPairs(pcl::PointCloud<pcl::PointXYZ> &cloud, double d, double delta) {
-	pcl::PointCloud<pcl::PointXYZ> candidatep_points;
-	for (int i = 0; i < cloud.size(); i++) {
-		cout << i << endl;
-		Eigen::Vector3d pi; 
-		pi << cloud.points[i].x, cloud.points[i].y, cloud.points[i].z;
-		for (int j = i; j < cloud.size(); j++) {
-			Eigen::Vector3d pj;
-			pj << cloud.points[j].x, cloud.points[j].y, cloud.points[j].z;
-			double r = (pi - pj).norm();
-			if (abs(r - d) < delta) {
-				candidatep_points.push_back(cloud.points[i]);
-				candidatep_points.push_back(cloud.points[j]);
+		kdtree.radiusSearch(PAI2.points[k], r, search_index, ptRadius);
+		if (search_index.size() > 0) {
+			for (int i = 0; i < search_index.size(); i++) {
+				PAI2_index.push_back(k);
+				PAI1_index.push_back(search_index[i]);
 			}
+			
 		}
 	}
-	return candidatep_points;
+	cout << "search res:" << endl;
+	cout << PAI1_index.size() << endl;
+	cout << PAI2_index.size() << endl;
+	
+	for (size_t i = 0; i < PAI1_index.size(); ++i) {
+		int pair_index1 = PAI1_index[i] / 2;
+		int pair_index2 = PAI2_index[i] / 2;
+		pcl::PointXYZ c1(R1[2*pair_index1]), c2(R1[2 * pair_index1 + 1]), c3(R2[2 * pair_index2]), c4(R2[2 * pair_index2 + 1]);
+		congruent_base.push_back(c1);
+		congruent_base.push_back(c2);
+		congruent_base.push_back(c3);
+		congruent_base.push_back(c4);
+	}
+	save_cloud = PAI1;
+	save_cloud2 = PAI2;
+}
+void FourPCS::FindMatchPairs(pcl::PointCloud<pcl::PointXYZ> cloud, pcl::PointCloud<pcl::PointXYZ>& R1, pcl::PointCloud<pcl::PointXYZ>& R2, double delta1, double delta2, double d) {
+	vector<thread> threads(THREAD_NUM);
+	for (int i = 0; i < THREAD_NUM; i++) {
+		threads[i] = thread(FindMatchPairsThread, cloud, std::ref(R1), std::ref(R2), delta1, delta2, d, i, 0);
+	}
+	for (int i = 0; i < THREAD_NUM; i++) {
+		threads[i].join();
+	}
+
 }
 
 pcl::PointXYZ FourPCS::NormalizePointXYZ(pcl::PointXYZ p) {
@@ -283,4 +326,7 @@ pcl::PointXYZ FourPCS::NormalizePointXYZ(pcl::PointXYZ p) {
 	pclp.z = ep[2];
 	return pclp;
 }
+
+
+
 
