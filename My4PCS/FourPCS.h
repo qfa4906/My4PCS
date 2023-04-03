@@ -25,6 +25,7 @@ public:
 	void Line2LineLeastSquareIntersection(Eigen::Vector3d u0, Eigen::Vector3d u1, Eigen::Vector3d v0, Eigen::Vector3d v1, double* r1, double* r2);//直线最小二乘交点交比
 	bool CheckLegal(Eigen::Vector3d x, Eigen::Vector3d y, Eigen::Vector3d z);//检测第四点位置
 	pcl::PointXYZ NormalizePointXYZ(pcl::PointXYZ);//归一化pcl点
-	Eigen::Matrix4d FindRigidTransformation(pcl::PointXYZ b1, pcl::PointXYZ b2 , pcl::PointXYZ b3, pcl::PointXYZ b4, pcl::PointXYZ p1 , pcl::PointXYZ p2 , pcl::PointXYZ p3 , pcl::PointXYZ p4 );
+	
+	Eigen::Matrix4f FindRigidTransformation(pcl::PointCloud<pcl::PointXYZ>, pcl::PointCloud<pcl::PointXYZ>);
 };
 

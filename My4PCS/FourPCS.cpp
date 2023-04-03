@@ -11,6 +11,7 @@
 #include<math.h>
 #include<pcl/common/common.h>
 #include <pcl/kdtree/kdtree_flann.h> 
+#include <pcl/registration/icp.h>
 int THREAD_NUM = 1;
 using namespace std;
 FourPCS::FourPCS(pcl::PointCloud<pcl::PointXYZ> cloud1, pcl::PointCloud<pcl::PointXYZ> cloud2) {
@@ -214,7 +215,6 @@ void FourPCS::FindCongruent(double delta)
 {
 	double min_dist = 0;
 	pcl::PointCloud<pcl::PointXYZ> B = this->Base;
-	pcl::PointCloud<pcl::PointXYZ> Q = this->Q_cloud;
 	Eigen::Vector3d p1, p2, p3, p4, b1, b2, b3, b4;
 	p1 << B.points[0].x, B.points[0].y, B.points[0].z;
 	p2 << B.points[1].x, B.points[1].y, B.points[1].z;
@@ -255,7 +255,7 @@ void FourPCS::FindCongruent(double delta)
 	//搜索近似长度点对
 	cout << "Matching Pairs from source" << endl;
 	//FindMatchPairs(Q_cloud,R1,R2,d1,d2, 0.02);
-	FindMatchPairsThread(Q_cloud, R1, R2, d1, d2, 0.02, 0, 0);
+	FindMatchPairsThread(Q_cloud, R1, R2, d1, d2, delta, 0, 0);
 	cout << "R1 Size: " << R1.size()<< endl;
 	cout << "R2 Size: " << R2.size() << endl;
 	//按照交比猜测可能的交点
@@ -274,7 +274,7 @@ void FourPCS::FindCongruent(double delta)
 	pcl::PointXYZ pSearch, pMin, pMax;       //搜索点，三个轴的最大值和最小值
 	pcl::getMinMax3D(*PAI1_ptr, pMin, pMax);    //需要include<pcl/common/common.h>
 	pcl::PointXYZ tmp;       //用于存储临时点
-	float r = min_dist * 2;
+	float r = min_dist * 10;
 	vector<int> PAI1_index;   //存储近邻索引
 	vector<int> search_index;
 	vector<float> ptRadius;      //存储近邻对应距离的平方
@@ -301,6 +301,8 @@ void FourPCS::FindCongruent(double delta)
 		congruent_base.push_back(c2);
 		congruent_base.push_back(c3);
 		congruent_base.push_back(c4);
+		//Eigen::Matrix4f TransMatrix = FindRigidTransformation(Base, congruent_base);
+		//congruent_base.clear();
 	}
 	save_cloud = PAI1;
 	save_cloud2 = PAI2;
@@ -326,6 +328,24 @@ pcl::PointXYZ FourPCS::NormalizePointXYZ(pcl::PointXYZ p) {
 	pclp.z = ep[2];
 	return pclp;
 }
+
+Eigen::Matrix4f FourPCS::FindRigidTransformation(pcl::PointCloud<pcl::PointXYZ> P_Base, pcl::PointCloud<pcl::PointXYZ> Q_Base) {
+	pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
+	pcl::PointCloud<pcl::PointXYZ>::Ptr P_Base_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+	pcl::PointCloud<pcl::PointXYZ>::Ptr Q_Base_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+	*P_Base_ptr = P_Base;
+	*Q_Base_ptr = Q_Base;
+	icp.setMaximumIterations(200);
+	icp.setMaxCorrespondenceDistance(1000);
+	icp.setTransformationEpsilon(1e-12);
+	icp.setEuclideanFitnessEpsilon(1e-12); // convergence contidion is that MSE is smaller than threshold
+	icp.setInputSource(P_Base_ptr);
+	icp.setInputTarget(Q_Base_ptr);
+	icp.align(*P_Base_ptr);
+	Eigen::Matrix4f m = icp.getFinalTransformation();
+	return m;
+}
+
 
 
 
